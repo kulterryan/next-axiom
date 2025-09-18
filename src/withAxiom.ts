@@ -54,6 +54,10 @@ export type NextHandler<T = any> = (
   req: AxiomRequest,
   arg?: T
 ) => Promise<Response> | Promise<NextResponse> | NextResponse | Response;
+type NextJsNextHandler<T = any> = (
+  req: NextRequest,
+  arg?: T
+) => Promise<Response> | Promise<NextResponse> | NextResponse | Response;
 
 type AxiomRouteHandlerConfig = {
   logRequestDetails?: boolean | (keyof RequestJSON)[];
@@ -62,7 +66,7 @@ type AxiomRouteHandlerConfig = {
   redirectLogLevel?: LogLevel; // defaults to LogLevel.info
 };
 
-export function withAxiomRouteHandler(handler: NextHandler, config?: AxiomRouteHandlerConfig): NextHandler {
+export function withAxiomRouteHandler(handler: NextHandler, config?: AxiomRouteHandlerConfig): NextJsNextHandler {
   return async (req: Request | NextRequest, arg: any) => {
     let region = '';
     if ('geo' in req) {
@@ -199,7 +203,7 @@ function isNextConfig(param: WithAxiomParam): param is NextConfig {
 
 // withAxiom can be called either with NextConfig, which will add proxy rewrites
 // to improve deliverability of Web-Vitals and logs.
-export function withAxiom(param: NextHandler, config?: AxiomRouteHandlerConfig): NextHandler;
+export function withAxiom(param: NextHandler, config?: AxiomRouteHandlerConfig): NextJsNextHandler;
 export function withAxiom(param: NextConfig): NextConfig;
 export function withAxiom(param: WithAxiomParam, config?: AxiomRouteHandlerConfig) {
   if (typeof param == 'function') {

@@ -6,7 +6,13 @@ import { LogLevel, Logger, RequestReport } from './logger';
 import { type NextRequest, type NextResponse } from 'next/server';
 import { EndpointType, RequestJSON, requestToJSON } from './shared';
 
-export function withAxiomNextConfig(nextConfig: NextConfig): NextConfig {
+// Type for the function variant of NextConfig
+// See: https://nextjs.org/docs/app/api-reference/config/next-config-js#configuration-as-a-function
+type NextConfigContext = { defaultConfig: NextConfig };
+type NextConfigFn = (phase: string, context: NextConfigContext) => NextConfig | Promise<NextConfig>;
+type NextConfigInput = NextConfig | NextConfigFn;
+
+function applyAxiomRewrites(nextConfig: NextConfig): NextConfig {
   return {
     ...nextConfig,
     rewrites: async () => {
@@ -47,6 +53,23 @@ export function withAxiomNextConfig(nextConfig: NextConfig): NextConfig {
       }
     },
   };
+}
+
+export function withAxiomNextConfig(nextConfigOrFn: NextConfigFn): NextConfigFn;
+export function withAxiomNextConfig(nextConfigOrFn: NextConfig): NextConfig;
+export function withAxiomNextConfig(nextConfigOrFn: NextConfigInput): NextConfigInput {
+  // Handle function variant of NextConfig
+  if (typeof nextConfigOrFn === 'function') {
+    return async (phase: string, ctx: NextConfigContext) => {
+      const nextConfig = await nextConfigOrFn(phase, ctx);
+      // Shallow clone to avoid read-only issues on top-level properties
+      return applyAxiomRewrites(Object.assign({}, nextConfig));
+    };
+  }
+
+  // Handle object variant of NextConfig
+  // Shallow clone to avoid read-only issues on top-level properties
+  return applyAxiomRewrites(Object.assign({}, nextConfigOrFn));
 }
 
 export type AxiomRequest = NextRequest & { log: Logger };
@@ -195,22 +218,33 @@ export function withAxiomRouteHandler(handler: NextHandler, config?: AxiomRouteH
   };
 }
 
-type WithAxiomParam = NextConfig | NextHandler;
+type WithAxiomParam = NextConfigInput | NextHandler;
 
 function isNextConfig(param: WithAxiomParam): param is NextConfig {
   return typeof param == 'object';
 }
 
-// withAxiom can be called either with NextConfig, which will add proxy rewrites
+function isNextConfigFn(param: WithAxiomParam): param is NextConfigFn {
+  // NextConfigFn takes 2 parameters (phase, context), while NextHandler takes 1-2 (req, arg?)
+  // We check if the function has exactly 2 parameters to distinguish between them
+  return typeof param === 'function' && param.length === 2;
+}
+
+// withAxiom can be called either with NextConfig (object or function), which will add proxy rewrites
 // to improve deliverability of Web-Vitals and logs.
 export function withAxiom(param: NextHandler, config?: AxiomRouteHandlerConfig): NextJsNextHandler;
+export function withAxiom(param: NextConfigFn): NextConfigFn;
 export function withAxiom(param: NextConfig): NextConfig;
 export function withAxiom(param: WithAxiomParam, config?: AxiomRouteHandlerConfig) {
   if (typeof param == 'function') {
-    return withAxiomRouteHandler(param, config);
+    // Check if it's a NextConfigFn (2 params: phase, context) vs NextHandler (1-2 params: req, arg?)
+    if (isNextConfigFn(param)) {
+      return withAxiomNextConfig(param);
+    }
+    return withAxiomRouteHandler(param as NextHandler, config);
   } else if (isNextConfig(param)) {
     return withAxiomNextConfig(param);
   }
 
-  return withAxiomRouteHandler(param, config);
+  return withAxiomRouteHandler(param as NextHandler, config);
 }
